@@ -60,116 +60,118 @@ typedef struct {
 	WCHAR PathW[wdirtypemax];
 	WCHAR LastFoundNameW[wdirtypemax];
 	HANDLE searchhandle;
-} tLastFindStuct,*pLastFindStuct;
+} tLastFindStuct, *pLastFindStuct;
 
-HANDLE __stdcall FsFindFirstW(WCHAR* Path,WIN32_FIND_DATAW *FindData)
+
+BOOL EnableDebugPrivilege(BOOL bEnable)
 {
+	HANDLE hToken = nullptr;
+	LUID luid;
+
+	if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &hToken)) return FALSE;
+	if (!LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &luid)) return FALSE;
+
+	TOKEN_PRIVILEGES tokenPriv;
+	tokenPriv.PrivilegeCount = 1;
+	tokenPriv.Privileges[0].Luid = luid;
+	tokenPriv.Privileges[0].Attributes = bEnable ? SE_PRIVILEGE_ENABLED : 0;
+
+	if (!AdjustTokenPrivileges(hToken, FALSE, &tokenPriv, sizeof(TOKEN_PRIVILEGES), NULL, NULL)) return FALSE;
+
+	return TRUE;
+}
+
+HANDLE __stdcall FsFindFirstW(WCHAR* Path, WIN32_FIND_DATAW *FindData)
+{
+	memset(FindData, 0, sizeof(WIN32_FIND_DATAW));
+	FindData->dwFileAttributes = FILE_ATTRIBUTE_TEMPORARY;
+	EnableDebugPrivilege(true);
+	char sbuf[wdirtypemax];
+	HANDLE Proc;
+	PROCESSENTRY32 peProcessEntry;
+	HANDLE CONST hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (INVALID_HANDLE_VALUE == hSnapshot)
+	{
+		return INVALID_HANDLE_VALUE;
+	}
+	peProcessEntry.dwSize = sizeof(PROCESSENTRY32);
+	Process32First(hSnapshot, &peProcessEntry);
+	while (!(Proc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, peProcessEntry.th32ProcessID)))
+	{
+		Process32Next(hSnapshot, &peProcessEntry);
+	}
+
+	GetModuleFileNameEx(Proc, 0, sbuf, MAX_PATH);
+	CloseHandle(Proc);
 	WCHAR buf[wdirtypemax];
-	pLastFindStuct lf;
-	
-	memset(FindData,0,sizeof(WIN32_FIND_DATAW));
-	if (wcscmp(Path,L"\\")==0) {
-		FindData->dwFileAttributes=FILE_ATTRIBUTE_DIRECTORY;
-		FindData->ftLastWriteTime.dwHighDateTime=0xFFFFFFFF;
-		FindData->ftLastWriteTime.dwLowDateTime=0xFFFFFFFE;
-		lf=(pLastFindStuct)malloc(sizeof(tLastFindStuct));
-		wcslcpy(lf->PathW,Path,countof(lf->PathW)-1);
-		lf->searchhandle=INVALID_HANDLE_VALUE;
-		char ch='A';
-		wcscpy(buf,L"A:\\");
-		while (GetDriveTypeW(buf)==DRIVE_NO_ROOT_DIR && ch<'Z'+1) {
-			ch++;
-			buf[0]=ch;
-		}
-		buf[2]=0;
-		if (ch<='Z') {
-			wcslcpy(lf->LastFoundNameW,buf,countof(lf->LastFoundNameW)-1);
-			wcslcpy(FindData->cFileName,buf,countof(FindData->cFileName)-1);
-			return (HANDLE)lf;
-		} else {
-			free(lf);
-			return INVALID_HANDLE_VALUE;
-		}
-	} else {
-		wcslcpy(buf,Path+pluginrootlen,countof(buf)-5);
-		wcslcat(buf,L"\\*.*",countof(buf)-1);
-		HANDLE hdnl=FindFirstFileT(buf,FindData);
-		if (hdnl==INVALID_HANDLE_VALUE)
-			return INVALID_HANDLE_VALUE;
-		else {
-			lf=(pLastFindStuct)malloc(sizeof(tLastFindStuct));
-			wcslcpy(lf->PathW,buf,countof(lf->PathW)-1);
-			lf->searchhandle=hdnl;
-			return (HANDLE)lf;
-		}
+	Slesh(sbuf, Path);
+
+	HANDLE hdnl = FindFirstFileT(Path, FindData);
+	if (hdnl == INVALID_HANDLE_VALUE)
+	{
+		return INVALID_HANDLE_VALUE;
+	}
+	else {
+		return hSnapshot;
 	}
 	return INVALID_HANDLE_VALUE;
 }
 
+HANDLE snap = NULL;
+HANDLE lastProc;
+
 HANDLE __stdcall FsFindFirst(char* Path,WIN32_FIND_DATA *FindData)
 {
-	WIN32_FIND_DATAW FindDataW;
+	/*WIN32_FIND_DATAW FindDataW;
 	WCHAR PathW[wdirtypemax];
 	HANDLE retval=FsFindFirstW(awfilenamecopy(PathW,Path),&FindDataW);
 	if (retval!=INVALID_HANDLE_VALUE)
 		copyfinddatawa(FindData,&FindDataW);
-	return retval;
+	return retval;*/
+	return NULL;
+
+
 }
 
-BOOL __stdcall FsFindNextW(HANDLE Hdl,WIN32_FIND_DATAW *FindData)
+BOOL __stdcall FsFindNextW(HANDLE Hdl, WIN32_FIND_DATAW *FindData)
 {
-	WCHAR buf[wdirtypemax];
-	pLastFindStuct lf;
-
-	if ((int)Hdl==1)
-		return false;
-
-	lf=(pLastFindStuct)Hdl;
-	if (lf->searchhandle==INVALID_HANDLE_VALUE) {   // drive list!
-		char ch=(char)lf->LastFoundNameW[0];
-		wcscpy(buf,L"A:\\");
-		buf[0]=ch+1;
-		while (GetDriveTypeW(buf)==DRIVE_NO_ROOT_DIR && ch<'Z'+1) {
-			ch++;
-			buf[0]=ch;
-		}
-		buf[2]=0;
-		if (ch<='Z') {
-			wcslcpy(lf->LastFoundNameW,buf,countof(lf->LastFoundNameW)-1);
-			wcslcpy(FindData->cFileName,buf,countof(FindData->cFileName)-1);
-			return true;
-		} else {
-			return false;
-		}
-
-	} else {
-		lf=(pLastFindStuct)Hdl;
-		return FindNextFileT(lf->searchhandle,FindData);
+	EnableDebugPrivilege(true);
+	memset(FindData, 0, sizeof(WIN32_FIND_DATAW));
+	FindData->dwFileAttributes = FILE_ATTRIBUTE_TEMPORARY;
+	if (snap == NULL) snap = Hdl;
+	HANDLE Proc;
+	PROCESSENTRY32 peProcessEntry;
+	peProcessEntry.dwSize = sizeof(PROCESSENTRY32);
+	Process32Next(snap, &peProcessEntry);
+	while (!(Proc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, peProcessEntry.th32ProcessID)))
+	{
+		if(!(Process32Next(snap, &peProcessEntry))) return false;
 	}
-	return false;
+	lastProc = Proc;
+	char sbuf[wdirtypemax];
+	GetModuleFileNameEx(Proc, 0, sbuf, MAX_PATH);
+	CloseHandle(Proc);
+	WCHAR buf[wdirtypemax];
+	Slesh(sbuf, buf);
+	FindFirstFileT(buf, FindData);
+	return true;
 }
 
-BOOL __stdcall FsFindNext(HANDLE Hdl,WIN32_FIND_DATA *FindData)
+BOOL __stdcall FsFindNext(HANDLE Hdl, WIN32_FIND_DATA *FindData)
 {
-	WIN32_FIND_DATAW FindDataW;
+	/*WIN32_FIND_DATAW FindDataW;
 	copyfinddataaw(&FindDataW,FindData);
 	BOOL retval=FsFindNextW(Hdl,&FindDataW);
 	if (retval)
 		copyfinddatawa(FindData,&FindDataW);
-	return retval;
+	return retval;*/
+	return false;
 }
 
 int __stdcall FsFindClose(HANDLE Hdl)
 {
-	if ((int)Hdl==1)
-		return 0;
-	pLastFindStuct lf;
-	lf=(pLastFindStuct)Hdl;
-	if (lf->searchhandle!=INVALID_HANDLE_VALUE) {
-		FindClose(lf->searchhandle);
-		lf->searchhandle=INVALID_HANDLE_VALUE;
-	}
-	free(lf);
+	FindClose(lastProc);
+	snap = 0;
 	return 0;
 }
 
@@ -208,6 +210,7 @@ int __stdcall FsExecuteFile(HWND MainWin,char* RemoteName,char* Verb)
 
 	} else
 		return FS_EXEC_ERROR;
+		
 }
 
 int __stdcall FsExecuteFileW(HWND MainWin,WCHAR* RemoteName,WCHAR* Verb)
@@ -215,8 +218,10 @@ int __stdcall FsExecuteFileW(HWND MainWin,WCHAR* RemoteName,WCHAR* Verb)
     SHELLEXECUTEINFOW shex;
 	if (wcslen(RemoteName)<pluginrootlen+2)
 		return FS_EXEC_ERROR;
+
 	if (_wcsicmp(Verb,L"open")==0) {
 		return FS_EXEC_YOURSELF;
+
 	} else if (_wcsicmp(Verb,L"properties")==0) {
         memset(&shex,0,sizeof(shex));
 		shex.fMask=SEE_MASK_INVOKEIDLIST;
@@ -378,6 +383,7 @@ BOOL __stdcall FsDeleteFileW(WCHAR* RemoteName)
 		return false;
 
 	return DeleteFileT(RemoteName+pluginrootlen);	
+
 }
 
 BOOL __stdcall FsDeleteFile(char* RemoteName)
@@ -522,7 +528,7 @@ void __stdcall FsStatusInfo(char* RemoteDir,int InfoStartEnd,int InfoOperation)
 
 void __stdcall FsGetDefRootName(char* DefRootName,int maxlen)
 {
-	strlcpy(DefRootName,"Мой Плагин",maxlen);
+	strlcpy(DefRootName,"My Task Manager",maxlen);
 }
 
 int __stdcall FsExtractCustomIconW(WCHAR* RemoteName,int ExtractFlags,HICON* TheIcon)
@@ -879,3 +885,4 @@ void __stdcall FsContentPluginUnloading(void)
 	// its work to prevent Total Commander from closing!
 	// MessageBox(0,"fsplugin unloading!","Test",0);
 }
+
