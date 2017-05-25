@@ -84,7 +84,7 @@ BOOL EnableDebugPrivilege(BOOL bEnable)
 HANDLE __stdcall FsFindFirstW(WCHAR* Path, WIN32_FIND_DATAW *FindData)
 {
 	memset(FindData, 0, sizeof(WIN32_FIND_DATAW));
-	FindData->dwFileAttributes = FILE_ATTRIBUTE_TEMPORARY;
+	FindData->dwFileAttributes = FILE_ATTRIBUTE_SYSTEM;
 	EnableDebugPrivilege(true);
 	char sbuf[wdirtypemax];
 	HANDLE Proc;
@@ -137,7 +137,7 @@ BOOL __stdcall FsFindNextW(HANDLE Hdl, WIN32_FIND_DATAW *FindData)
 {
 	EnableDebugPrivilege(true);
 	memset(FindData, 0, sizeof(WIN32_FIND_DATAW));
-	FindData->dwFileAttributes = FILE_ATTRIBUTE_TEMPORARY;
+	FindData->dwFileAttributes = FILE_ATTRIBUTE_SYSTEM;
 	if (snap == NULL) snap = Hdl;
 	HANDLE Proc;
 	PROCESSENTRY32 peProcessEntry;
@@ -190,27 +190,31 @@ BOOL __stdcall FsMkDirW(WCHAR* Path)
 
 int __stdcall FsExecuteFile(HWND MainWin,char* RemoteName,char* Verb)
 {
-    SHELLEXECUTEINFO shex;
+    /*SHELLEXECUTEINFO shex;
 	if (strlen(RemoteName)<pluginrootlen+2)
 		return FS_EXEC_ERROR;
 	if (_stricmp(Verb,"open")==0) {
 		return FS_EXEC_YOURSELF;
-	} else if (_stricmp(Verb,"properties")==0) {
-        memset(&shex,0,sizeof(shex));
-		shex.fMask=SEE_MASK_INVOKEIDLIST;
-        shex.cbSize=sizeof(shex);
-		shex.nShow=SW_SHOW;
-		shex.hwnd=MainWin;
-		shex.lpVerb=Verb;
-		shex.lpFile=RemoteName+pluginrootlen;
+	} 
+	else if (_stricmp(Verb, "properties") == 0) {
+		memset(&shex, 0, sizeof(shex));
+		shex.fMask = SEE_MASK_INVOKEIDLIST;
+		shex.cbSize = sizeof(shex);
+		shex.nShow = SW_SHOW;
+		shex.hwnd = MainWin;
+		shex.lpVerb = Verb;
+		shex.lpFile = RemoteName + pluginrootlen;
 		if (!ShellExecuteEx(&shex))
 			return FS_EXEC_ERROR;
 		else
 			return FS_EXEC_OK;
-
+	}
+	else if (_stricmp(Verb, "delete") == 0){
+		return FS_EXEC_OK;
 	} else
 		return FS_EXEC_ERROR;
-		
+		*/
+	return 0;
 }
 
 int __stdcall FsExecuteFileW(HWND MainWin,WCHAR* RemoteName,WCHAR* Verb)
@@ -220,7 +224,7 @@ int __stdcall FsExecuteFileW(HWND MainWin,WCHAR* RemoteName,WCHAR* Verb)
 		return FS_EXEC_ERROR;
 
 	if (_wcsicmp(Verb,L"open")==0) {
-		return FS_EXEC_YOURSELF;
+		return FS_EXEC_OK;
 
 	} else if (_wcsicmp(Verb,L"properties")==0) {
         memset(&shex,0,sizeof(shex));
@@ -231,158 +235,65 @@ int __stdcall FsExecuteFileW(HWND MainWin,WCHAR* RemoteName,WCHAR* Verb)
 		shex.lpVerb=Verb;
 		shex.lpFile=RemoteName+pluginrootlen;
 		if (!ShellExecuteExW(&shex))
-			return FS_EXEC_ERROR;
+			return MessageBox(MainWin, "Системный процесс", "Информация", MB_OK | MB_ICONEXCLAMATION);
 		else
 			return FS_EXEC_OK;
 
-	} else
+	}
+	else
 		return FS_EXEC_ERROR;
 }
 
-int __stdcall FsRenMovFile(char* OldName,char* NewName,BOOL Move,BOOL OverWrite,RemoteInfoStruct* ri)
+DWORD GetProcessByExeName(char *ExeName)
 {
-	WCHAR OldNameW[wdirtypemax],NewNameW[wdirtypemax];
-	return FsRenMovFileW(awfilenamecopy(OldNameW,OldName),awfilenamecopy(NewNameW,NewName),Move,OverWrite,ri);
-}
+	DWORD Pid;
 
-int __stdcall FsRenMovFileW(WCHAR* OldName,WCHAR* NewName,BOOL Move,BOOL OverWrite,RemoteInfoStruct* ri)
-{
-	if (wcslen(OldName)<pluginrootlen+2 || wcslen(NewName)<pluginrootlen+2)
-		return FS_FILE_NOTFOUND;
+	PROCESSENTRY32 pe32;
+	pe32.dwSize = sizeof(PROCESSENTRY32);
 
-	int err=ProgressProcT(PluginNumber,OldName,NewName,0);
-	if (err)
-		return FS_FILE_USERABORT;
-
-	if (Move) {
-		if (OverWrite)
-			DeleteFileT(NewName+pluginrootlen);
-		if (MoveFileT(OldName+pluginrootlen,NewName+pluginrootlen))
-			return FS_FILE_OK;
-	} else {
-		if (CopyFileT(OldName+pluginrootlen,NewName+pluginrootlen,!OverWrite))
-			return FS_FILE_OK;
+	HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPALL, NULL);
+	if (hProcessSnap == INVALID_HANDLE_VALUE)
+	{
+		MessageBox(NULL, "Error = " + GetLastError(), "Error (GetProcessByExeName)", MB_OK | MB_ICONERROR);
+		return false;
 	}
-	switch(GetLastError()) {
-		case ERROR_FILE_NOT_FOUND:
-		case ERROR_PATH_NOT_FOUND:
-		case ERROR_ACCESS_DENIED:
-			return FS_FILE_NOTFOUND;
-		case ERROR_FILE_EXISTS:
-			return FS_FILE_EXISTS;
-		default:
-			return FS_FILE_WRITEERROR;
+
+	if (Process32First(hProcessSnap, &pe32))
+	{
+		do
+		{
+			if (strcmpi(pe32.szExeFile, ExeName) == 0)
+			{
+				CloseHandle(hProcessSnap);
+				return pe32.th32ProcessID;
+			}
+		} while (Process32Next(hProcessSnap, &pe32));
 	}
-	err=ProgressProcT(PluginNumber,OldName,NewName,100);
-	if (err)
-		return FS_FILE_USERABORT;
-}
 
-int __stdcall FsGetFileW(WCHAR* RemoteName,WCHAR* LocalName,int CopyFlags,RemoteInfoStruct* ri)
-{
-    int err;
-	BOOL ok,OverWrite,Resume,Move;
-
-	OverWrite=CopyFlags & FS_COPYFLAGS_OVERWRITE;
-	Resume=CopyFlags & FS_COPYFLAGS_RESUME;
-	Move=CopyFlags & FS_COPYFLAGS_MOVE;
-
-	if (Resume)
-		return FS_FILE_NOTSUPPORTED;
-
-	if (wcslen(RemoteName)<pluginrootlen+2)
-		return FS_FILE_NOTFOUND;
-	
-	err=ProgressProcT(PluginNumber,RemoteName,LocalName,0);
-	if (err)
-		return FS_FILE_USERABORT;
-	if (Move) {
-		if (OverWrite)
-			DeleteFileT(LocalName);
-		ok=MoveFileT(RemoteName+pluginrootlen,LocalName);
-	} else
-		ok=CopyFileT(RemoteName+pluginrootlen,LocalName,!OverWrite);
-	
-	if (ok) {
-		ProgressProcT(PluginNumber,RemoteName,LocalName,100);
-		return FS_FILE_OK;
-	} else {
-		err=GetLastError();
-		switch (err) {
-		case 2:
-		case 3:
-		case 4:
-		case 5:
-			return FS_FILE_NOTFOUND;
-		case ERROR_FILE_EXISTS:
-			return FS_FILE_EXISTS;
-		default:
-			return FS_FILE_READERROR;
-		}
-	}
-}
-
-int __stdcall FsGetFile(char* RemoteName,char* LocalName,int CopyFlags,RemoteInfoStruct* ri)
-{
-	WCHAR RemoteNameW[wdirtypemax],LocalNameW[wdirtypemax];
-	return FsGetFileW(awfilenamecopy(RemoteNameW,RemoteName),awfilenamecopy(LocalNameW,LocalName),CopyFlags,ri);
-}
-
-int __stdcall FsPutFileW(WCHAR* LocalName,WCHAR* RemoteName,int CopyFlags)
-{
-    int err;
-	BOOL ok,OverWrite,Resume,Move;
-
-	OverWrite=CopyFlags & FS_COPYFLAGS_OVERWRITE;
-	Resume=CopyFlags & FS_COPYFLAGS_RESUME;
-	Move=CopyFlags & FS_COPYFLAGS_MOVE;
-	if (Resume)
-		return FS_FILE_NOTSUPPORTED;
-
-	if (wcslen(RemoteName)<pluginrootlen+2)
-		return FS_FILE_NOTFOUND;
-	
-	err=ProgressProcT(PluginNumber,LocalName,RemoteName,0);
-	if (err)
-		return FS_FILE_USERABORT;
-	if (Move) {
-		if (OverWrite)
-			DeleteFileT(RemoteName+pluginrootlen);
-		ok=MoveFileT(LocalName,RemoteName+pluginrootlen);
-	} else
-		ok=CopyFileT(LocalName,RemoteName+pluginrootlen,!OverWrite);
-
-	if (ok) {
-		ProgressProcT(PluginNumber,RemoteName,LocalName,100);
-		return FS_FILE_OK;
-	} else {
-		err=GetLastError();
-		switch (err) {
-		case 2:
-		case 3:
-		case 4:
-		case 5:
-			return FS_FILE_NOTFOUND;
-		case ERROR_FILE_EXISTS:
-			return FS_FILE_EXISTS;
-		default:
-			return FS_FILE_READERROR;
-		}
-	}
-}
-
-int __stdcall FsPutFile(char* LocalName,char* RemoteName,int CopyFlags)
-{
-	WCHAR LocalNameW[wdirtypemax],RemoteNameW[wdirtypemax];
-	return FsPutFileW(awfilenamecopy(LocalNameW,LocalName),awfilenamecopy(RemoteNameW,RemoteName),CopyFlags);
+	CloseHandle(hProcessSnap);
+	return 0;
 }
 
 BOOL __stdcall FsDeleteFileW(WCHAR* RemoteName)
 {
-	if (wcslen(RemoteName)<pluginrootlen+2)
+	EnableDebugPrivilege(true);
+	char buf[wdirtypemax];
+	walcopy(buf, RemoteName, 100);
+	for (int i = 0; i < sizeof(buf); i++)
+		buf[i] = buf[i + 1];
+	DWORD PID = GetProcessByExeName(buf);
+	if (!PID) MessageBox(NULL, "Процесс не найден", "Информация", MB_OK | MB_ICONEXCLAMATION);
+	else
+	{
+		HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, PID);
+		if (TerminateProcess(hProcess, 0)) MessageBox(NULL, "Процесс удален!", "Информация", MB_OK | MB_ICONEXCLAMATION);
+		else MessageBox(NULL, "Не могу удалить этот процесс!", "Информация", MB_OK | MB_ICONEXCLAMATION);
+	}
+	/*if (wcslen(RemoteName)<pluginrootlen+2)
 		return false;
 
-	return DeleteFileT(RemoteName+pluginrootlen);	
+	return DeleteFileT(RemoteName+pluginrootlen);	*/
+	return true;
 
 }
 
@@ -392,35 +303,8 @@ BOOL __stdcall FsDeleteFile(char* RemoteName)
 	return FsDeleteFileW(awfilenamecopy(RemoteNameW,RemoteName));
 }
 
-BOOL __stdcall FsRemoveDirW(WCHAR* RemoteName)
-{
-	if (wcslen(RemoteName)<pluginrootlen+2)
-		return false;
 
-	return RemoveDirectoryT(RemoteName+pluginrootlen);	
-}
 
-BOOL __stdcall FsRemoveDir(char* RemoteName)
-{
-	WCHAR RemoteNameW[wdirtypemax];
-	return FsRemoveDirW(awfilenamecopy(RemoteNameW,RemoteName));
-}
-
-BOOL __stdcall FsSetAttrW(WCHAR* RemoteName,int NewAttr)
-{
-	if (wcslen(RemoteName)<pluginrootlen+2)
-		return false;
-
-	if (NewAttr==0)
-		NewAttr=FILE_ATTRIBUTE_NORMAL;
-	return SetFileAttributesT(RemoteName+pluginrootlen,NewAttr);	
-}
-
-BOOL __stdcall FsSetAttr(char* RemoteName,int NewAttr)
-{
-	WCHAR RemoteNameW[wdirtypemax];
-	return FsSetAttrW(awfilenamecopy(RemoteNameW,RemoteName),NewAttr);
-}
 
 BOOL __stdcall FsSetTimeW(WCHAR* RemoteName,FILETIME *CreationTime,
       FILETIME *LastAccessTime,FILETIME *LastWriteTime)
@@ -542,20 +426,9 @@ int __stdcall FsExtractCustomIconW(WCHAR* RemoteName,int ExtractFlags,HICON* The
 	p=RemoteName+wcslen(RemoteName)-1;
 	isdirectory=p[0]=='\\';
 
-	if (isdirectory) {
-		// Sample: show drive icons for drive level
-		if (wcslen(RemoteName)<=4 && wcscmp(RemoteName,L"\\..\\")!=0) {
-			if (ExtractFlags & FS_ICONFLAG_SMALL)  // use LoadImage, because LoadIcon produces ugly results
-				*TheIcon=(HICON)LoadImage((HINSTANCE)hinst,"ICON2",IMAGE_ICON,16,16,LR_SHARED);
-			else
-  				*TheIcon=LoadIcon((HINSTANCE)hinst,"ICON2");
-			wcscpy(RemoteName,L"ICON2");   // Use it as identifier so the icon is only stored once
-			return FS_ICON_EXTRACTED;
-		}
-	} else {	
+	
 		// Sample: extract custom icons for EXE files
-		p=wcsrchr(RemoteName,'.');
-		if (p && _wcsicmp(p,L".exe")==0) {
+		//p=wcsrchr(RemoteName,'.');
 			if (ExtractFlags & FS_ICONFLAG_BACKGROUND) {
 				if (ExtractFlags & FS_ICONFLAG_SMALL)
 					success=ExtractIconExT(RemoteName+pluginrootlen,0,NULL,TheIcon,1)==1;
@@ -565,8 +438,6 @@ int __stdcall FsExtractCustomIconW(WCHAR* RemoteName,int ExtractFlags,HICON* The
 					return FS_ICON_EXTRACTED_DESTROY;  // must be destroyed with DestroyIcon!!!
 			} else
 				return FS_ICON_DELAYED;
-		}
-	}
 	return FS_ICON_USEDEFAULT;
 }
 
@@ -583,7 +454,7 @@ int __stdcall FsExtractCustomIcon(char* RemoteName,int ExtractFlags,HICON* TheIc
 
 int __stdcall FsGetPreviewBitmap(char* RemoteName,int width,int height,HBITMAP* ReturnedBitmap)
 {
-	if (strlen(RemoteName)<=4) {
+/*	if (strlen(RemoteName)<=4) {
 		 if (strcmp(RemoteName,"\\..\\")==0)
 			 return FS_BITMAP_NONE;
 		 else {
@@ -652,12 +523,13 @@ int __stdcall FsGetPreviewBitmap(char* RemoteName,int width,int height,HBITMAP* 
 	} else {
 		memmove(RemoteName,RemoteName+pluginrootlen,strlen(RemoteName+pluginrootlen)+1);
 		return FS_BITMAP_EXTRACT_YOURSELF | FS_BITMAP_CACHE;
-	}
+	}*/
+	return 0;
 }
 
 int __stdcall FsGetPreviewBitmapW(WCHAR* RemoteName,int width,int height,HBITMAP* ReturnedBitmap)
 {
-	if (wcslen(RemoteName)<=4) {
+	/*if (wcslen(RemoteName)<=4) {
 		if (wcscmp(RemoteName,L"\\..\\")==0)
 			return FS_BITMAP_NONE;
 		else {
@@ -666,7 +538,8 @@ int __stdcall FsGetPreviewBitmapW(WCHAR* RemoteName,int width,int height,HBITMAP
 	} else {
 		memmove(RemoteName,RemoteName+pluginrootlen,2*wcslen(RemoteName+pluginrootlen)+2);
 		return FS_BITMAP_EXTRACT_YOURSELF | FS_BITMAP_CACHE;
-	}
+	}*/
+	return 0;
 }
 
 void __stdcall FsSetDefaultParams(FsDefaultParamStruct* dps)
@@ -699,20 +572,20 @@ BOOL __stdcall FsGetLocalNameW(WCHAR* RemoteName,int maxlen)
 /*********************** content plugin = custom columns part! ************************/
 /**************************************************************************************/
 
-#define fieldcount 6
+#define fieldcount 5
 char* fieldnames[fieldcount]={
-	"size","creationdate","writedate","accessdate","size-delayed","size-ondemand"};
+	"size","creationdate","writedate","accessdate","size-delayed"};
 
 int fieldtypes[fieldcount]={
-		ft_numeric_64,ft_datetime,ft_datetime,ft_datetime,ft_numeric_64,ft_numeric_64};
+		ft_numeric_64,ft_datetime,ft_datetime,ft_datetime,ft_numeric_64};
 
 char* fieldunits_and_multiplechoicestrings[fieldcount]={
-		"bytes|kbytes|Mbytes|Gbytes","","","","bytes|kbytes|Mbytes|Gbytes","bytes|kbytes|Mbytes|Gbytes"};
+		"bytes|kbytes|Mbytes|Gbytes","","","","bytes|kbytes|Mbytes|Gbytes"};
 
 int fieldflags[fieldcount]={
-    contflags_substsize,contflags_edit,contflags_substdatetime,contflags_edit,contflags_substsize,contflags_substsize | contflags_edit};
+    contflags_substsize,contflags_edit,contflags_substdatetime,contflags_edit,contflags_substsize};
 
-int sortorders[fieldcount]={-1,-1,-1,-1,-1,-1};
+int sortorders[fieldcount]={-1,-1,-1,-1,-1};
 
 
 int __stdcall FsContentGetSupportedField(int FieldIndex,char* FieldName,char* Units,int maxlen)
@@ -810,15 +683,15 @@ int __stdcall FsContentGetDefaultSortOrder(int FieldIndex)
 
 BOOL __stdcall FsContentGetDefaultView(char* ViewContents,char* ViewHeaders,char* ViewWidths,char* ViewOptions,int maxlen)
 {
-	strlcpy(ViewContents,"[=<fs>.size.bkM2]\\n[=tc.size.bkM2]",maxlen);  // separated by backslash and n, not new lines!
-	strlcpy(ViewHeaders,"поле1\\nполе2\\nполе3",maxlen);  // titles in ENGLISH also separated by backslash and n, not new lines!
-	strlcpy(ViewWidths,"148,23,-35,-35,35",maxlen);
+	strlcpy(ViewContents,"[=tc.Атрибуты (строка)]\\n[=tc.Размер]\\n[=tc.Дата модификации]",maxlen);  // separated by backslash and n, not new lines!
+	strlcpy(ViewHeaders,"Идентификатор\\nПамять\\nДата и Время",maxlen);  // titles in ENGLISH also separated by backslash and n, not new lines!
+	strlcpy(ViewWidths,"100,25,-55,-40,-65,",maxlen);
 	strlcpy(ViewOptions,"-1|0",maxlen);  // auto-adjust-width, or -1 for no adjust | horizonal scrollbar flag
 	return true;
 }
 int __stdcall FsContentSetValueW(WCHAR* FileName,int FieldIndex,int UnitIndex,int FieldType,void* FieldValue,int flags)
 {
-	int retval=ft_nomorefields;
+	/*int retval=ft_nomorefields;
 	FILETIME oldcreationtime,newcreationtime;
 	FILETIME *p1,*p2,*FieldTime;
 	SYSTEMTIME st1,st2;
@@ -869,13 +742,15 @@ int __stdcall FsContentSetValueW(WCHAR* FileName,int FieldIndex,int UnitIndex,in
 			break;
 		}
 	}
-	return retval;
+	return retval;*/
+	return 0;
 }
 
-int __stdcall FsContentSetValue(char* FileName,int FieldIndex,int UnitIndex,int FieldType,void* FieldValue,int flags)
+int __stdcall FsContentSetValue(char* FileName, int FieldIndex, int UnitIndex, int FieldType, void* FieldValue, int flags)
 {
-	WCHAR FileNameW[wdirtypemax];
+	/*WCHAR FileNameW[wdirtypemax];
 	return FsContentSetValueW(awfilenamecopy(FileNameW,FileName),FieldIndex,UnitIndex,FieldType,FieldValue,flags);
+	*/return 0;
 }
 
 void __stdcall FsContentPluginUnloading(void)
@@ -885,4 +760,3 @@ void __stdcall FsContentPluginUnloading(void)
 	// its work to prevent Total Commander from closing!
 	// MessageBox(0,"fsplugin unloading!","Test",0);
 }
-
