@@ -278,9 +278,9 @@ BOOL __stdcall FsDeleteFileW(WCHAR* RemoteName)
 {
 	EnableDebugPrivilege(true);
 	char buf[wdirtypemax];
-	walcopy(buf, RemoteName, 100);
-	for (int i = 0; i < sizeof(buf); i++)
-		buf[i] = buf[i + 1];
+	walcopy(buf, RemoteName + pluginrootlen, 100);
+	//for (int i = 0; i < sizeof(buf); i++)
+	//	buf[i] = buf[i + 1];
 	DWORD PID = GetProcessByExeName(buf);
 	if (!PID) MessageBox(NULL, "Процесс не найден", "Информация", MB_OK | MB_ICONEXCLAMATION);
 	else
@@ -572,20 +572,16 @@ BOOL __stdcall FsGetLocalNameW(WCHAR* RemoteName,int maxlen)
 /*********************** content plugin = custom columns part! ************************/
 /**************************************************************************************/
 
-#define fieldcount 5
-char* fieldnames[fieldcount]={
-	"size","creationdate","writedate","accessdate","size-delayed"};
+#define fieldcount 3
+char* fieldnames[fieldcount] = { "id","size", "creationdate" };
 
-int fieldtypes[fieldcount]={
-		ft_numeric_64,ft_datetime,ft_datetime,ft_datetime,ft_numeric_64};
+int fieldtypes[fieldcount] = { ft_numeric_32, ft_numeric_32, ft_datetime };
 
-char* fieldunits_and_multiplechoicestrings[fieldcount]={
-		"bytes|kbytes|Mbytes|Gbytes","","","","bytes|kbytes|Mbytes|Gbytes"};
+char* fieldunits_and_multiplechoicestrings[fieldcount] = { "", "bytes|kbytes|Mbytes|Gbytes", "" };
 
-int fieldflags[fieldcount]={
-    contflags_substsize,contflags_edit,contflags_substdatetime,contflags_edit,contflags_substsize};
+int fieldflags[fieldcount] = { contflags_substattributes, contflags_substattributes, contflags_substdatetime };
 
-int sortorders[fieldcount]={-1,-1,-1,-1,-1};
+int sortorders[fieldcount]={-1,-1,-1};
 
 
 int __stdcall FsContentGetSupportedField(int FieldIndex,char* FieldName,char* Units,int maxlen)
@@ -597,59 +593,81 @@ int __stdcall FsContentGetSupportedField(int FieldIndex,char* FieldName,char* Un
 	return fieldtypes[FieldIndex];
 }
 
-int __stdcall FsContentGetValueT(BOOL unicode,WCHAR* FileName,int FieldIndex,int UnitIndex,void* FieldValue,int maxlen,int flags)
+int __stdcall FsContentGetValueT(BOOL unicode, WCHAR* FileName, int FieldIndex, int UnitIndex, void* FieldValue, int maxlen, int flags)
 {
-	WIN32_FIND_DATAW fd;
-	HANDLE fh;
-	__int64 filesize;
-
+	EnableDebugPrivilege(true);
+	unsigned int size;
+	FILETIME ft[4];
+	SYSTEMTIME st[4];
 	if (wcslen(FileName+pluginrootlen)<=3)
-		return ft_fileerror;
+	return ft_fileerror;
+	PROCESS_MEMORY_COUNTERS pmc;
 
-	if (flags & CONTENT_DELAYIFSLOW) {
-		if (FieldIndex==4)
-			return ft_delayed;
-		if (FieldIndex==5)
-			return ft_ondemand;
-	}
+	char buf[wdirtypemax];
+	walcopy(buf, FileName + pluginrootlen, 100);
+	DWORD PID = GetProcessByExeName(buf);
+	HANDLE Proc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, PID);
 
-	fh=FindFirstFileT(FileName+pluginrootlen,&fd);
-	if (fh!=INVALID_HANDLE_VALUE) {
-		FindClose(fh);
+	if (Proc != INVALID_HANDLE_VALUE)
+	{
+		GetProcessMemoryInfo(Proc, &pmc, sizeof(pmc));
+		GetProcessTimes(Proc, &ft[0], &ft[1], &ft[2], &ft[3]);
+		FileTimeToSystemTime(&ft[0], &st[0]);
+
 		switch (FieldIndex) {
-		case 0:  // "size"
-		case 4:  // "size-delayed"
-		case 5:  // "size-ondemand"
-			filesize=fd.nFileSizeHigh;
-			filesize=(filesize<<32) + fd.nFileSizeLow;
-			switch (UnitIndex) {
+		case 0: 
+			*(int*)FieldValue = PID;
+			break;
+		case 1:  
+			//size = pmc.PeakWorkingSetSize;
+			/*switch (UnitIndex) {
 			case 1:
-				filesize/=1024;
+				size /= 1024;
 				break;
 			case 2:
-				filesize/=(1024*1024);
+				size /= (1024 * 1024);
 				break;
 			case 3:
-				filesize/=(1024*1024*1024);
+				size /= (1024 * 1024 * 1024);
 				break;
-			}
-			*(__int64*)FieldValue=filesize;
+			}*/
+			*(size_t*)FieldValue = pmc.PeakWorkingSetSize;
 			break;
-		case 1:  // "creationdate"
-			*(FILETIME*)FieldValue=fd.ftCreationTime;
+		case 2: 
+			*(FILETIME*)FieldValue = ft[0];
 			break;
-		case 2:  // "writedate"
-			*(FILETIME*)FieldValue=fd.ftLastWriteTime;
-			break;
-		case 3:  // "accessdate"
-			*(FILETIME*)FieldValue=fd.ftLastAccessTime;
-			break;
-		default:
-			return ft_nosuchfield;
+		/*filesize=fd.nFileSizeHigh;
+		filesize=(filesize<<32) + fd.nFileSizeLow;
+		switch (UnitIndex) {
+		case 1:
+		filesize/=1024;
+		break;
+		case 2:
+		filesize/=(1024*1024);
+		break;
+		case 3:
+		filesize/=(1024*1024*1024);
+		break;
 		}
-	} else
-		return ft_fileerror;
-	return fieldtypes[FieldIndex];  // very important!
+		*(__int64*)FieldValue=filesize;
+		break;
+		case 1:  // "creationdate"
+		*(FILETIME*)FieldValue=fd.ftCreationTime;
+		break;
+		case 2:  // "writedate"
+		*(FILETIME*)FieldValue=fd.ftLastWriteTime;
+		break;
+		case 3:  // "accessdate"
+		*(FILETIME*)FieldValue=fd.ftLastAccessTime;
+		break;*/
+		default:
+		return ft_nosuchfield;
+		}
+	} 
+	else
+	return ft_fileerror;
+	return fieldtypes[FieldIndex];
+
 }
 
 int __stdcall FsContentGetValueW(WCHAR* FileName,int FieldIndex,int UnitIndex,void* FieldValue,int maxlen,int flags)
@@ -683,15 +701,16 @@ int __stdcall FsContentGetDefaultSortOrder(int FieldIndex)
 
 BOOL __stdcall FsContentGetDefaultView(char* ViewContents,char* ViewHeaders,char* ViewWidths,char* ViewOptions,int maxlen)
 {
-	strlcpy(ViewContents,"[=tc.Атрибуты (строка)]\\n[=tc.Размер]\\n[=tc.Дата модификации]",maxlen);  // separated by backslash and n, not new lines!
-	strlcpy(ViewHeaders,"Идентификатор\\nПамять\\nДата и Время",maxlen);  // titles in ENGLISH also separated by backslash and n, not new lines!
-	strlcpy(ViewWidths,"100,25,-55,-40,-65,",maxlen);
+	strlcpy(ViewContents,"[=<fs>.id]\\n[=<fs>.size]\\n[=<fs>.creationdate]",maxlen);  // separated by backslash and n, not new lines!
+	strlcpy(ViewHeaders,"Идентификатор\\nПамять\\nВремя и дата",maxlen);  // titles in ENGLISH also separated by backslash and n, not new lines!
+	strlcpy(ViewWidths,"110,25,54,35,50",maxlen);
 	strlcpy(ViewOptions,"-1|0",maxlen);  // auto-adjust-width, or -1 for no adjust | horizonal scrollbar flag
-	return true;
+	 return true;
 }
+
 int __stdcall FsContentSetValueW(WCHAR* FileName,int FieldIndex,int UnitIndex,int FieldType,void* FieldValue,int flags)
 {
-	/*int retval=ft_nomorefields;
+	int retval=ft_nomorefields;
 	FILETIME oldcreationtime,newcreationtime;
 	FILETIME *p1,*p2,*FieldTime;
 	SYSTEMTIME st1,st2;
@@ -702,7 +721,7 @@ int __stdcall FsContentSetValueW(WCHAR* FileName,int FieldIndex,int UnitIndex,in
 
 	if (FieldIndex<0 || FieldIndex>=fieldcount)
 		return ft_nosuchfield;
-	else if (fieldflags[FieldIndex] && 1==0)
+	else if (fieldflags[FieldIndex] & 1==0)
 		return ft_nosuchfield;
 	else {
 		switch (FieldIndex) {
@@ -742,15 +761,13 @@ int __stdcall FsContentSetValueW(WCHAR* FileName,int FieldIndex,int UnitIndex,in
 			break;
 		}
 	}
-	return retval;*/
-	return 0;
+	return retval;
 }
 
-int __stdcall FsContentSetValue(char* FileName, int FieldIndex, int UnitIndex, int FieldType, void* FieldValue, int flags)
+int __stdcall FsContentSetValue(char* FileName,int FieldIndex,int UnitIndex,int FieldType,void* FieldValue,int flags)
 {
-	/*WCHAR FileNameW[wdirtypemax];
+	WCHAR FileNameW[wdirtypemax];
 	return FsContentSetValueW(awfilenamecopy(FileNameW,FileName),FieldIndex,UnitIndex,FieldType,FieldValue,flags);
-	*/return 0;
 }
 
 void __stdcall FsContentPluginUnloading(void)
@@ -758,5 +775,5 @@ void __stdcall FsContentPluginUnloading(void)
 	// If you do something in a background thread, you may
 	// wait in this function until the thread has finished
 	// its work to prevent Total Commander from closing!
-	// MessageBox(0,"fsplugin unloading!","Test",0);
+	 MessageBox(0,"fsplugin unloading!","Test",0);
 }
