@@ -11,36 +11,18 @@ extern tRequestProcW RequestProcW;
 
 char usysychecked=0;
 
-BOOL usys()
-{
-	if (!usysychecked) {
-		OSVERSIONINFO vx;
-		vx.dwOSVersionInfoSize=sizeof(vx);
-		GetVersionEx(&vx);
-		if (vx.dwPlatformId==VER_PLATFORM_WIN32_NT)
-			usysychecked=1;
-		else
-			usysychecked=2;
-	}
-	return (usysychecked==1);
-}
-
 WCHAR* Slesh(CHAR* str,WCHAR* res)
 {
-	WCHAR buf[wdirtypemax];
 	std::string str2 = str;
-	int len = str2.length();
-	std::string slash = "\\";
-	for (std::string::size_type n = str2.find('\\'); (n != std::string::npos) && (n < 2); str2.find('\\', n))
+	for (std::string::size_type n = str2.find('\\'); n < 2 ; str2.find('\\', n))
 	{
-		str2.insert(n, slash);
+		str2.insert(n, "\\");
 		while (str2.at(n) == '\\')
 			n++;
 	}
 	char *cstr = new char[str2.length() + 1];
 	strcpy(cstr, str2.c_str());
-	int l = str2.length();
-	awlcopy(res, cstr, l);
+	awlcopy(res, cstr, str2.length());
 	return res;
 }
 
@@ -154,7 +136,6 @@ void LogProcT(int PluginNr,int MsgType,WCHAR* LogString)
 	}
 }
 
-
 BOOL RequestProcT(int PluginNr,int RequestType,WCHAR* CustomTitle,
               WCHAR* CustomText,WCHAR* ReturnedText,int maxlen)
 {
@@ -173,132 +154,20 @@ BOOL RequestProcT(int PluginNr,int RequestType,WCHAR* CustomTitle,
 		return false;
 }
 
-BOOL CopyFileT(WCHAR* lpExistingFileName,WCHAR* lpNewFileName,BOOL bFailIfExists)
-{
-	if (usys()) {
-		WCHAR wbuf1[wdirtypemax+longnameprefixmax],wbuf2[wdirtypemax+longnameprefixmax];
-		if (MakeExtraLongNameW(wbuf1,lpExistingFileName,wdirtypemax-1+longnameprefixmax) &&
-			MakeExtraLongNameW(wbuf2,lpNewFileName,wdirtypemax-1+longnameprefixmax))
-			return CopyFileW(wbuf1,wbuf2,bFailIfExists);
-		else
-			return false;
-	} else {
-		char buf1[MAX_PATH],buf2[MAX_PATH];
-		return CopyFile(wafilenamecopy(buf1,lpExistingFileName),wafilenamecopy(buf2,lpNewFileName),bFailIfExists);
-	}
-}
-
-BOOL CreateDirectoryT(WCHAR* lpPathName,LPSECURITY_ATTRIBUTES lpSecurityAttributes)
-{
-	if (usys()) {
-		WCHAR wbuf[wdirtypemax+longnameprefixmax];
-		if (MakeExtraLongNameW(wbuf,lpPathName,wdirtypemax-1+longnameprefixmax))
-			return CreateDirectoryW(wbuf,lpSecurityAttributes);
-		else
-			return false;
-	} else {
-		char buf[MAX_PATH];
-		return CreateDirectory(wafilenamecopy(buf,lpPathName),lpSecurityAttributes);
-	}
-}
-
-BOOL RemoveDirectoryT(WCHAR* lpPathName)
-{
-	if (usys()) {
-		WCHAR wbuf[wdirtypemax+longnameprefixmax];
-		if (MakeExtraLongNameW(wbuf,lpPathName,wdirtypemax-1+longnameprefixmax))
-			return RemoveDirectoryW(wbuf);
-		else
-			return false;
-	} else {
-		char buf[MAX_PATH];
-		return RemoveDirectory(wafilenamecopy(buf,lpPathName));
-	}
-}
-
-BOOL DeleteFileT(WCHAR* lpFileName)
-{
-	if (usys()) {
-		WCHAR wbuf[wdirtypemax+longnameprefixmax];
-		if (MakeExtraLongNameW(wbuf,lpFileName,wdirtypemax-1+longnameprefixmax))
-			return DeleteFileW(wbuf);
-		else
-			return false;
-	} else {
-		char buf[MAX_PATH];
-		return DeleteFile(wafilenamecopy(buf,lpFileName));
-	}
-}
-
-BOOL MoveFileT(WCHAR* lpExistingFileName,WCHAR* lpNewFileName)
-{
-	if (usys()) {
-		WCHAR wbuf1[wdirtypemax+longnameprefixmax],wbuf2[wdirtypemax+longnameprefixmax];
-		if (MakeExtraLongNameW(wbuf1,lpExistingFileName,wdirtypemax-1+longnameprefixmax) &&
-			MakeExtraLongNameW(wbuf2,lpNewFileName,wdirtypemax-1+longnameprefixmax))
-			return MoveFileW(wbuf1,wbuf2);
-		else
-			return false;
-	} else {
-		char buf1[MAX_PATH],buf2[MAX_PATH];
-		return MoveFile(wafilenamecopy(buf1,lpExistingFileName),wafilenamecopy(buf2,lpNewFileName));
-	}
-}
-
 BOOL SetFileAttributesT(WCHAR* lpFileName,DWORD dwFileAttributes)
 {
-	if (usys()) {
-		WCHAR wbuf[wdirtypemax+longnameprefixmax];
-		if (MakeExtraLongNameW(wbuf,lpFileName,wdirtypemax-1+longnameprefixmax))
-			return SetFileAttributesW(wbuf,dwFileAttributes);
-		else
-			return false;
-	} else {
-		char buf[MAX_PATH];
-		return SetFileAttributes(wafilenamecopy(buf,lpFileName),dwFileAttributes);
-	}
-}
-
-HANDLE CreateFileT(WCHAR* lpFileName,DWORD dwDesiredAccess,DWORD dwShareMode,
-  LPSECURITY_ATTRIBUTES lpSecurityAttributes,DWORD dwCreationDisposition,
-  DWORD dwFlagsAndAttributes,HANDLE hTemplateFile)
-{
-	if (usys()) {
-		WCHAR wbuf[wdirtypemax+longnameprefixmax];
-		if (MakeExtraLongNameW(wbuf,lpFileName,wdirtypemax-1+longnameprefixmax))
-			return CreateFileW(wbuf,dwDesiredAccess,dwShareMode,
-				lpSecurityAttributes,dwCreationDisposition,
-				dwFlagsAndAttributes,hTemplateFile);
-		else
-			return INVALID_HANDLE_VALUE;
-	} else {
-		char buf[MAX_PATH];
-		return CreateFile(wafilenamecopy(buf,lpFileName),dwDesiredAccess,dwShareMode,
-			lpSecurityAttributes,dwCreationDisposition,
-			dwFlagsAndAttributes,hTemplateFile);
-	}
+	char buf[MAX_PATH];
+	return SetFileAttributes(wafilenamecopy(buf,lpFileName),dwFileAttributes);
 }
 
 UINT ExtractIconExT(WCHAR* lpszFile,int nIconIndex,HICON *phiconLarge,HICON *phiconSmall,UINT nIcons)
 {
-	if (usys()) {  // Unfortunately this function cannot handle names longer than 259 characters
-		return ExtractIconExW(lpszFile,nIconIndex,phiconLarge,phiconSmall,nIcons);
-	} else {
-		char buf[MAX_PATH];
-		return ExtractIconEx(wafilenamecopy(buf,lpszFile),nIconIndex,phiconLarge,phiconSmall,nIcons);
-	}
-	return 0;
+	char buf[MAX_PATH];
+	return ExtractIconEx(wafilenamecopy(buf,lpszFile),nIconIndex,phiconLarge,phiconSmall,nIcons);
 }
 
 HANDLE FindFirstFileT(WCHAR* lpFileName,LPWIN32_FIND_DATAW lpFindFileData)
 {
-	/*if (usys()) {
-		WCHAR wbuf[wdirtypemax+longnameprefixmax];
-		if (MakeExtraLongNameW(wbuf,lpFileName,wdirtypemax-1+longnameprefixmax))
-			return FindFirstFileW(wbuf,lpFindFileData);
-		else
-			return INVALID_HANDLE_VALUE;
-	} else {*/
 		char buf[MAX_PATH];
 		WIN32_FIND_DATA FindFileDataA;
 		HANDLE retval=FindFirstFile(wafilenamecopy(buf,lpFileName),&FindFileDataA);
@@ -315,15 +184,10 @@ HANDLE FindFirstFileT(WCHAR* lpFileName,LPWIN32_FIND_DATAW lpFindFileData)
 			lpFindFileData->nFileSizeLow=FindFileDataA.nFileSizeLow;
 		}
 		return retval;
-	//}
 }
 
 BOOL FindNextFileT(HANDLE hFindFile, LPWIN32_FIND_DATAW lpFindFileData)
 {
-	/*if (usys()) {
-		return FindNextFileW(hFindFile, lpFindFileData);
-	}
-	else {*/
 		WIN32_FIND_DATA FindFileDataA;
 		memset(&FindFileDataA, 0, sizeof(FindFileDataA));
 		BOOL retval = FindNextFile(hFindFile, &FindFileDataA);
